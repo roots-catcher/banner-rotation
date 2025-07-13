@@ -1,0 +1,35 @@
+name: CI Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest  # Используем Windows для сборки
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+    
+    - name: Install Chocolatey
+      run: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+
+    - name: Install golangci-lint
+      run: |
+        choco install golangci-lint  # Установка через Chocolatey
+        
+    - name: Run linter
+      run: golangci-lint run
+      
+    - name: Run tests
+      run: go test -race -count=100 -v ./...
+      
+    - name: Build
+      run: go build -o banner-rotation.exe ./cmd
