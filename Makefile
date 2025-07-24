@@ -2,7 +2,10 @@ build:
 	go build -o bin/banner-rotation.exe cmd/main.go
 
 run:
-	go run cmd/main.go
+	docker-compose up --build
+
+down:
+	docker-compose down
 
 test:
 	go test -v ./...

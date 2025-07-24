@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   build-and-test:
-    runs-on: windows-latest  # Используем Windows для сборки
+    runs-on: windows-latest
     
     steps:
     - name: Checkout code
@@ -23,7 +23,7 @@ jobs:
 
     - name: Install golangci-lint
       run: |
-        choco install golangci-lint  # Установка через Chocolatey
+        choco install golangci-lint
         
     - name: Run linter
       run: golangci-lint run
