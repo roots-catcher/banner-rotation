@@ -86,11 +86,6 @@ func TestE2E_BannerRotation(t *testing.T) {
 	body, _ = json.Marshal(chooseReq)
 	resp, err = http.Post(baseURL+"/choose_banner", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Logf("error closing response body: %v", err)
-		}
-	}()
-	respBody, _ = io.ReadAll(resp.Body)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	require.Equal(t, 500, resp.StatusCode)
 }
