@@ -41,7 +41,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("Error closing store: %v", err)
+		}
+	}()
 
 	// Создание продюсера Kafka
 	var producer kafka.ProducerInterface
@@ -53,7 +57,11 @@ func main() {
 			BatchTimeout: 10 * time.Millisecond,
 		}
 		producer = kafka.NewProducer(kafkaWriter)
-		defer producer.Close()
+		defer func() {
+			if err := producer.Close(); err != nil {
+				log.Printf("Error closing producer: %v", err)
+			}
+		}()
 	} else {
 		log.Println("Kafka brokers not configured, producer disabled")
 		producer = nil
@@ -73,7 +81,7 @@ func main() {
 
 	// Ожидание сигнала завершения
 	<-ctx.Done()
-	log.Println("Shutting down...")
+	log.Println("Shutting down..")
 
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)

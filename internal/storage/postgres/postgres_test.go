@@ -12,7 +12,11 @@ func TestPostgresStorage(t *testing.T) {
 	connStr := "postgres://rotation_user:rotation_pass@localhost:5432/banner_rotation?sslmode=disable"
 	store, err := New(connStr)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("error closing store: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -50,7 +54,11 @@ func TestGetBannersForSlot(t *testing.T) {
 	connStr := "postgres://rotation_user:rotation_pass@localhost:5432/banner_rotation?sslmode=disable"
 	store, err := New(connStr)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("error closing store: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -3,7 +3,7 @@ package test
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"testing"
@@ -18,7 +18,9 @@ func waitForAPI(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		resp, err := http.Get(baseURL + "/choose_banner")
 		if err == nil {
-			resp.Body.Close()
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("error closing response body: %v", err)
+			}
 			return
 		}
 		time.Sleep(1 * time.Second)
@@ -38,15 +40,21 @@ func TestE2E_BannerRotation(t *testing.T) {
 	resp, err := http.Post(baseURL+"/banner_slot", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("error closing response body: %v", err)
+	}
 
 	// 2. Выбрать баннер для показа
 	chooseReq := map[string]interface{}{"slot_id": 1, "group_id": 1}
 	body, _ = json.Marshal(chooseReq)
 	resp, err = http.Post(baseURL+"/choose_banner", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	defer resp.Body.Close()
-	respBody, _ := ioutil.ReadAll(resp.Body)
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("error closing response body: %v", err)
+		}
+	}()
+	respBody, _ := io.ReadAll(resp.Body)
 	require.Equal(t, 200, resp.StatusCode)
 	var chooseResp map[string]interface{}
 	require.NoError(t, json.Unmarshal(respBody, &chooseResp))
@@ -58,7 +66,9 @@ func TestE2E_BannerRotation(t *testing.T) {
 	resp, err = http.Post(baseURL+"/register_click", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("error closing response body: %v", err)
+	}
 
 	// 4. Удалить баннер
 	client := &http.Client{}
@@ -68,13 +78,19 @@ func TestE2E_BannerRotation(t *testing.T) {
 	resp, err = client.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("error closing response body: %v", err)
+	}
 
 	// 5. Попробовать выбрать баннер (должна быть ошибка)
 	body, _ = json.Marshal(chooseReq)
 	resp, err = http.Post(baseURL+"/choose_banner", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	defer resp.Body.Close()
-	respBody, _ = ioutil.ReadAll(resp.Body)
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("error closing response body: %v", err)
+		}
+	}()
+	respBody, _ = io.ReadAll(resp.Body)
 	require.Equal(t, 500, resp.StatusCode)
 }
