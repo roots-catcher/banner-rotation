@@ -134,40 +134,8 @@ func (b *Bandit) sendEvent(eventType events.EventType, slotID, bannerID, groupID
 	}()
 }
 
-// ChooseBanner выбирает баннер для показа в указанном слоте для группы
-func (b *Bandit) ChooseBanner(ctx context.Context, slotID, groupID int) (int, error) {
-	cache, err := b.loadStats(ctx, slotID, groupID)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(cache.banners) == 0 {
-		return 0, fmt.Errorf("no banners in rotation for slot %d", slotID)
-	}
-
-	var bannerID int
-	// Полностью защищаем работу с кешом
-	cache.mu.Lock()
-	bannerID = b.chooseBanner(cache)
-
-	// Обновляем статистику сразу в этом же блоке
-	stat := cache.banners[bannerID]
-	stat.Shows++
-	cache.banners[bannerID] = stat
-	cache.totalShows++
-	cache.mu.Unlock()
-
-	if err := b.store.RecordShow(ctx, slotID, bannerID, groupID); err != nil {
-		return 0, fmt.Errorf("failed to record show: %w", err)
-	}
-
-	// Не вызываем updateCache, так как уже обновили кеш выше
-	b.sendEvent(events.EventShow, slotID, bannerID, groupID)
-	return bannerID, nil
-}
-
-// chooseBanner реализует алгоритм для выбора баннера
-func (b *Bandit) chooseBanner(cache *banditCache) int {
+// chooseBannerSafe безопасно выбирает баннер под блокировкой
+func (b *Bandit) chooseBannerSafe(cache *banditCache) int {
 	bestID := 0
 	bestValue := -1.0
 
@@ -180,6 +148,39 @@ func (b *Bandit) chooseBanner(cache *banditCache) int {
 	}
 
 	return bestID
+}
+
+// ChooseBanner выбирает баннер для показа в указанном слоте для группы
+func (b *Bandit) ChooseBanner(ctx context.Context, slotID, groupID int) (int, error) {
+	cache, err := b.loadStats(ctx, slotID, groupID)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(cache.banners) == 0 {
+		return 0, fmt.Errorf("no banners in rotation for slot %d", slotID)
+	}
+
+	var bannerID int
+	var stat BannerStat
+
+	// Полностью защищаем работу с кешом
+	cache.mu.Lock()
+	bannerID = b.chooseBannerSafe(cache) // Теперь безопасно
+
+	// Обновляем статистику сразу в этом же блоке
+	stat = cache.banners[bannerID]
+	stat.Shows++
+	cache.banners[bannerID] = stat
+	cache.totalShows++
+	cache.mu.Unlock()
+
+	if err := b.store.RecordShow(ctx, slotID, bannerID, groupID); err != nil {
+		return 0, fmt.Errorf("failed to record show: %w", err)
+	}
+
+	b.sendEvent(events.EventShow, slotID, bannerID, groupID)
+	return bannerID, nil
 }
 
 // calculateUCB вычисляет значение UCB для баннера
