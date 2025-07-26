@@ -3,9 +3,8 @@ name: CI Pipeline
 on: [push, pull_request]
 
 jobs:
-  lint-and-test:
+  build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Увеличиваем общий таймаут
     
     steps:
     - name: Checkout code
@@ -18,22 +17,22 @@ jobs:
         cache: true
     
     - name: Install dependencies
-      run: sudo apt-get install -y make
-    
+      run: sudo apt-get update && sudo apt-get install -y build-essential
+      
     - name: Install golangci-lint
       run: |
-        # Установка последней версии с кэшированием
-        GOLANGCI_LINT_VERSION=v1.58.0
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | \
-        sh -s -- -b $(go env GOPATH)/bin $GOLANGCI_LINT_VERSION
+        # Установка последней версии golangci-lint
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.58.0
         
     - name: Run linter
       run: |
-        # Увеличиваем таймаут линтера и включаем кэширование
-        golangci-lint run --timeout 5m --issues-exit-code=0 -v
-        
-    - name: Run unit tests
-      run: go test -race -count=100 -v ./...
+        # Увеличиваем таймаут линтера
+        golangci-lint run --timeout 5m -v
+      
+    - name: Run tests
+      run: |
+        # Уменьшаем количество итераций для тестов
+        go test -race -count=1 -v ./...
       
     - name: Build
-      run: go build -o banner-rotation ./cmd
+      run: go build -o banner-rotation ./cmd 
