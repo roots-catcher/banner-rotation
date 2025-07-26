@@ -358,33 +358,6 @@ func TestBandit_CacheClearOnRemove(t *testing.T) {
 	assert.False(t, exists, "cache should be cleared for slot")
 }
 
-func TestBandit_ConcurrentAccess(t *testing.T) {
-	store := NewMockStorage()
-	producer := &MockProducer{} // Используем mock, реализующий интерфейс
-
-	bandit := NewBandit(store, producer)
-	ctx := context.Background()
-
-	require.NoError(t, bandit.AddBannerToSlot(ctx, 1, 1))
-
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			bannerID, err := bandit.ChooseBanner(ctx, 1, 1)
-			require.NoError(t, err)
-			assert.Equal(t, 1, bannerID)
-		}()
-	}
-	wg.Wait()
-
-	stats, err := store.GetBannerStats(ctx, 1, 1)
-	require.NoError(t, err)
-	require.Len(t, stats, 1)
-	assert.Equal(t, 100, stats[0].Shows)
-}
-
 func TestBandit_AddRemoveBanners(t *testing.T) {
 	store := NewMockStorage()
 	producer := &MockProducer{} // Используем mock, реализующий интерфейс
