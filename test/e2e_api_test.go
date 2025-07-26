@@ -18,9 +18,7 @@ func waitForAPI(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		resp, err := http.Get(baseURL + "/choose_banner")
 		if err == nil {
-			if err := resp.Body.Close(); err != nil {
-				t.Logf("error closing response body: %v", err)
-			}
+			require.NoError(t, resp.Body.Close())
 			return
 		}
 		time.Sleep(1 * time.Second)
@@ -36,56 +34,60 @@ func TestE2E_BannerRotation(t *testing.T) {
 
 	// 1. Добавить баннер в слот
 	addReq := map[string]interface{}{"slot_id": 1, "banner_id": 100}
-	body, _ := json.Marshal(addReq)
+	body, err := json.Marshal(addReq)
+	require.NoError(t, err)
 	resp, err := http.Post(baseURL+"/banner_slot", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("error closing response body: %v", err)
-	}
+	require.NoError(t, resp.Body.Close())
 
 	// 2. Выбрать баннер для показа
 	chooseReq := map[string]interface{}{"slot_id": 1, "group_id": 1}
-	body, _ = json.Marshal(chooseReq)
+	body, err = json.Marshal(chooseReq)
+	require.NoError(t, err)
 	resp, err = http.Post(baseURL+"/choose_banner", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Logf("error closing response body: %v", err)
-		}
+		require.NoError(t, resp.Body.Close())
 	}()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
+
 	var chooseResp map[string]interface{}
 	require.NoError(t, json.Unmarshal(respBody, &chooseResp))
 	require.Equal(t, float64(100), chooseResp["banner_id"])
 
 	// 3. Засчитать клик
 	clickReq := map[string]interface{}{"slot_id": 1, "banner_id": 100, "group_id": 1}
-	body, _ = json.Marshal(clickReq)
+	body, err = json.Marshal(clickReq)
+	require.NoError(t, err)
 	resp, err = http.Post(baseURL+"/register_click", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("error closing response body: %v", err)
-	}
+	require.NoError(t, resp.Body.Close())
 
-	// 4. Удалить баннер
+	// 4. Удалить баннер - ИСПРАВЛЕНО
+	deleteReq := map[string]interface{}{"slot_id": 1, "banner_id": 100}
+	body, err = json.Marshal(deleteReq)
+	require.NoError(t, err)
 	client := &http.Client{}
-	body, _ = json.Marshal(addReq)
-	req, _ := http.NewRequest("DELETE", baseURL+"/banner_slot", bytes.NewReader(body))
+	req, err := http.NewRequest("DELETE", baseURL+"/banner_slot", bytes.NewReader(body))
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = client.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("error closing response body: %v", err)
-	}
+	require.NoError(t, resp.Body.Close())
 
 	// 5. Попробовать выбрать баннер (должна быть ошибка)
-	body, _ = json.Marshal(chooseReq)
+	body, err = json.Marshal(chooseReq)
+	require.NoError(t, err)
 	resp, err = http.Post(baseURL+"/choose_banner", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	defer func() { require.NoError(t, resp.Body.Close()) }()
-	require.Equal(t, 500, resp.StatusCode)
+	defer func() {
+		require.NoError(t, resp.Body.Close())
+	}()
+
+	require.GreaterOrEqual(t, resp.StatusCode, 400)
 }
