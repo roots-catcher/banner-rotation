@@ -145,9 +145,10 @@ func (b *Bandit) ChooseBanner(ctx context.Context, slotID, groupID int) (int, er
 		return 0, fmt.Errorf("no banners in rotation for slot %d", slotID)
 	}
 
-	// Защищенный доступ к кешу
+	// Защищаем доступ к кешу полностью
+	var bannerID int
 	cache.mu.RLock()
-	bannerID := b.chooseBanner(cache)
+	bannerID = b.chooseBanner(cache)
 	cache.mu.RUnlock()
 
 	if err := b.store.RecordShow(ctx, slotID, bannerID, groupID); err != nil {
