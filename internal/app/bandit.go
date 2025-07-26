@@ -25,14 +25,15 @@ var _ BanditInterface = (*Bandit)(nil)
 type Bandit struct {
 	mu       sync.RWMutex
 	store    storage.Storage
-	cache    map[string]banditCache
+	cache    map[string]*banditCache
 	producer kafka.ProducerInterface
 }
 
 // banditCache - кешированная статистика для комбинации слот+группа
 type banditCache struct {
+	mu         sync.RWMutex
 	totalShows int
-	banners    map[int]*BannerStat
+	banners    map[int]BannerStat
 }
 
 // BannerStat - статистика для одного баннера
@@ -45,7 +46,7 @@ type BannerStat struct {
 func NewBandit(store storage.Storage, producer kafka.ProducerInterface) *Bandit {
 	return &Bandit{
 		store:    store,
-		cache:    make(map[string]banditCache),
+		cache:    make(map[string]*banditCache),
 		producer: producer,
 	}
 }
@@ -60,61 +61,67 @@ var (
 )
 
 // loadStats загружает статистику из хранилища или кеша
-func (b *Bandit) loadStats(ctx context.Context, slotID, groupID int) (banditCache, error) {
+func (b *Bandit) loadStats(ctx context.Context, slotID, groupID int) (*banditCache, error) {
+	key := b.getCacheKey(slotID, groupID)
+
+	// Проверка кеша под блокировкой чтения
+	b.mu.RLock()
+	if cache, ok := b.cache[key]; ok {
+		b.mu.RUnlock()
+		return cache, nil
+	}
+	b.mu.RUnlock()
+
+	// Загрузка данных из хранилища
 	bannerIDs, err := b.store.GetBannersForSlot(ctx, slotID)
 	if err != nil {
-		return banditCache{}, fmt.Errorf("failed to get banners: %w", err)
+		return nil, fmt.Errorf("failed to get banners: %w", err)
 	}
 
-	cache := banditCache{
-		banners:    make(map[int]*BannerStat),
-		totalShows: 0,
-	}
-
-	// Инициализация для всех баннеров
-	for _, id := range bannerIDs {
-		cache.banners[id] = &BannerStat{}
-	}
-
-	// 3. Если в слоте нет баннеров - возвращаем ошибку
 	if len(bannerIDs) == 0 {
-		return banditCache{}, ErrNoBanners
+		return nil, ErrNoBanners
 	}
 
-	// 4. Инициализация временного кеша
-	tempCache := banditCache{
-		banners:    make(map[int]*BannerStat, len(bannerIDs)),
+	// Создание нового кеша
+	newCache := &banditCache{
+		banners:    make(map[int]BannerStat, len(bannerIDs)),
 		totalShows: 0,
 	}
 
-	// 5. Создаем записи для всех баннеров (даже без статистики)
+	// Инициализация баннеров
 	for _, id := range bannerIDs {
-		tempCache.banners[id] = &BannerStat{}
+		newCache.banners[id] = BannerStat{}
 	}
 
-	// 6. Загрузка статистики из хранилища
+	// Загрузка статистики
 	stats, err := b.store.GetBannerStats(ctx, slotID, groupID)
 	if err != nil {
-		return banditCache{}, fmt.Errorf("failed to get stats for slot %d group %d: %w",
+		return nil, fmt.Errorf("failed to get stats for slot %d group %d: %w",
 			slotID, groupID, err)
 	}
 
-	// 7. Обновление кеша на основе загруженной статистики
+	// Обновление кеша
 	for _, stat := range stats {
-		if banner, exists := tempCache.banners[stat.BannerID]; exists {
-			banner.Shows = stat.Shows
-			banner.Clicks = stat.Clicks
-			tempCache.totalShows += stat.Shows
+		if _, exists := newCache.banners[stat.BannerID]; exists {
+			newCache.banners[stat.BannerID] = BannerStat{
+				Shows:  stat.Shows,
+				Clicks: stat.Clicks,
+			}
+			newCache.totalShows += stat.Shows
 		}
 	}
 
-	// 8. Сохранение в основное хранилище кеша
+	// Сохранение в основное хранилище кеша
 	b.mu.Lock()
-	key := b.getCacheKey(slotID, groupID)
-	b.cache[key] = tempCache
-	b.mu.Unlock()
+	defer b.mu.Unlock()
 
-	return tempCache, nil
+	// Проверка на случай, если кеш уже добавили параллельно
+	if existingCache, ok := b.cache[key]; ok {
+		return existingCache, nil
+	}
+
+	b.cache[key] = newCache
+	return newCache, nil
 }
 
 func (b *Bandit) sendEvent(eventType events.EventType, slotID, bannerID, groupID int) {
@@ -129,35 +136,33 @@ func (b *Bandit) sendEvent(eventType events.EventType, slotID, bannerID, groupID
 
 // ChooseBanner выбирает баннер для показа в указанном слоте для группы
 func (b *Bandit) ChooseBanner(ctx context.Context, slotID, groupID int) (int, error) {
-	// Загружаем статистику
 	cache, err := b.loadStats(ctx, slotID, groupID)
 	if err != nil {
 		return 0, err
 	}
 
-	// Если нет баннеров в ротации
 	if len(cache.banners) == 0 {
 		return 0, fmt.Errorf("no banners in rotation for slot %d", slotID)
 	}
 
-	// Выбираем баннер с помощью алгоритма
+	// Защищенный доступ к кешу
+	cache.mu.RLock()
 	bannerID := b.chooseBanner(cache)
+	cache.mu.RUnlock()
 
-	// Регистрируем показ в хранилище
 	if err := b.store.RecordShow(ctx, slotID, bannerID, groupID); err != nil {
 		return 0, fmt.Errorf("failed to record show: %w", err)
 	}
 
-	// Обновляем кеш
+	// Обновление кеша под блокировкой
 	b.updateCache(slotID, groupID, bannerID, true, false)
 
 	b.sendEvent(events.EventShow, slotID, bannerID, groupID)
-
 	return bannerID, nil
 }
 
 // chooseBanner реализует алгоритм для выбора баннера
-func (b *Bandit) chooseBanner(cache banditCache) int {
+func (b *Bandit) chooseBanner(cache *banditCache) int {
 	bestID := 0
 	bestValue := -1.0
 
@@ -173,7 +178,7 @@ func (b *Bandit) chooseBanner(cache banditCache) int {
 }
 
 // calculateUCB вычисляет значение UCB для баннера
-func (b *Bandit) calculateUCB(stat *BannerStat, totalShows int) float64 {
+func (b *Bandit) calculateUCB(stat BannerStat, totalShows int) float64 {
 	// Если баннер еще не показывали - максимальный приоритет
 	if stat.Shows == 0 {
 		return math.MaxFloat64
@@ -207,25 +212,24 @@ func (b *Bandit) RecordClick(ctx context.Context, slotID, bannerID, groupID int)
 func (b *Bandit) updateCache(slotID, groupID, bannerID int, isShow, isClick bool) {
 	key := b.getCacheKey(slotID, groupID)
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	// Получаем кеш (если нет - создаем)
+	b.mu.RLock()
 	cache, ok := b.cache[key]
+	b.mu.RUnlock()
+
 	if !ok {
-		cache = banditCache{
-			banners: make(map[int]*BannerStat),
-		}
+		return
 	}
 
-	// Получаем статистику баннера (если нет - создаем)
+	// Обновление под блокировкой
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
 	stat, ok := cache.banners[bannerID]
 	if !ok {
-		stat = &BannerStat{}
-		cache.banners[bannerID] = stat
+		// Если баннера нет, добавляем новую запись
+		stat = BannerStat{}
 	}
 
-	// Обновляем статистику
 	if isShow {
 		stat.Shows++
 		cache.totalShows++
@@ -234,8 +238,7 @@ func (b *Bandit) updateCache(slotID, groupID, bannerID int, isShow, isClick bool
 		stat.Clicks++
 	}
 
-	// Сохраняем обновленный кеш
-	b.cache[key] = cache
+	cache.banners[bannerID] = stat
 }
 
 // AddBannerToSlot добавляет баннер в ротацию слота
