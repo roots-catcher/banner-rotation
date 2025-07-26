@@ -140,7 +140,7 @@ func (b *Bandit) ChooseBanner(ctx context.Context, slotID, groupID int) (int, er
 		return 0, fmt.Errorf("no banners in rotation for slot %d", slotID)
 	}
 
-	// Выбираем баннер с помощью алгоритма UCB1
+	// Выбираем баннер с помощью алгоритма
 	bannerID := b.chooseBanner(cache)
 
 	// Регистрируем показ в хранилище
@@ -156,7 +156,7 @@ func (b *Bandit) ChooseBanner(ctx context.Context, slotID, groupID int) (int, er
 	return bannerID, nil
 }
 
-// chooseBanner реализует алгоритм UCB1 для выбора баннера
+// chooseBanner реализует алгоритм для выбора баннера
 func (b *Bandit) chooseBanner(cache banditCache) int {
 	bestID := 0
 	bestValue := -1.0
@@ -255,7 +255,6 @@ func (b *Bandit) RemoveBannerFromSlot(ctx context.Context, slotID, bannerID int)
 		return fmt.Errorf("failed to remove banner from slot: %w", err)
 	}
 
-	// При удалении баннера нужно обновить кеш во всех группах
 	b.clearCacheForSlot(slotID)
 	return nil
 }

@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     
     steps:
     - name: Checkout code
@@ -14,25 +14,22 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: true
     
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y build-essential
-      
+    - name: Install Chocolatey
+      run: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+
     - name: Install golangci-lint
       run: |
-        # Установка последней версии golangci-lint
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.58.0
+        choco install golangci-lint
         
     - name: Run linter
-      run: |
-        # Увеличиваем таймаут линтера
-        golangci-lint run --timeout 5m -v
+      run: golangci-lint run
       
     - name: Run tests
-      run: |
-        # Уменьшаем количество итераций для тестов
-        go test -race -count=1 -v ./...
+      run: go test -race -count=100 -v ./...
       
     - name: Build
-      run: go build -o banner-rotation ./cmd 
+      run: go build -o banner-rotation.exe ./cmd
