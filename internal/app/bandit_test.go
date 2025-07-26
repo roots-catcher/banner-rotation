@@ -291,35 +291,45 @@ func TestBandit_RecordClick(t *testing.T) {
 
 func TestBandit_CacheUpdate(t *testing.T) {
 	store := NewMockStorage()
-	producer := &MockProducer{} // Используем mock, реализующий интерфейс
-
+	producer := &MockProducer{}
 	bandit := NewBandit(store, producer)
 	ctx := context.Background()
-
 	require.NoError(t, bandit.AddBannerToSlot(ctx, 1, 1))
-
 	bannerID, err := bandit.ChooseBanner(ctx, 1, 1)
 	require.NoError(t, err)
 	assert.Equal(t, 1, bannerID)
-
 	key := bandit.getCacheKey(1, 1)
+
+	// Проверка Shows после ChooseBanner
 	bandit.mu.RLock()
 	cache, exists := bandit.cache[key]
 	bandit.mu.RUnlock()
-
 	require.True(t, exists)
-	require.Contains(t, cache.banners, 1)
-	assert.Equal(t, 1, cache.banners[1].Shows)
-	assert.Equal(t, 0, cache.banners[1].Clicks)
+
+	// Читаем значения под блокировкой cache.mu.RLock()
+	var showsAfterChoose, clicksAfterChoose int
+	cache.mu.RLock()
+	showsAfterChoose = cache.banners[1].Shows
+	clicksAfterChoose = cache.banners[1].Clicks
+	cache.mu.RUnlock()
+
+	assert.Equal(t, 1, showsAfterChoose)
+	assert.Equal(t, 0, clicksAfterChoose)
 
 	// Клик
 	require.NoError(t, bandit.RecordClick(ctx, 1, 1, 1))
 
+	// Проверка Clicks после RecordClick
+	var clicksAfterClick int
 	bandit.mu.RLock()
 	cache = bandit.cache[key]
 	bandit.mu.RUnlock()
 
-	assert.Equal(t, 1, cache.banners[1].Clicks)
+	cache.mu.RLock()
+	clicksAfterClick = cache.banners[1].Clicks
+	cache.mu.RUnlock()
+
+	assert.Equal(t, 1, clicksAfterClick)
 }
 
 func TestBandit_CacheClearOnRemove(t *testing.T) {
