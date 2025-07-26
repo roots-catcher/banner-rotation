@@ -145,19 +145,23 @@ func (b *Bandit) ChooseBanner(ctx context.Context, slotID, groupID int) (int, er
 		return 0, fmt.Errorf("no banners in rotation for slot %d", slotID)
 	}
 
-	// Защищаем доступ к кешу полностью
 	var bannerID int
-	cache.mu.RLock()
+	// Полностью защищаем работу с кешом
+	cache.mu.Lock()
 	bannerID = b.chooseBanner(cache)
-	cache.mu.RUnlock()
+
+	// Обновляем статистику сразу в этом же блоке
+	stat := cache.banners[bannerID]
+	stat.Shows++
+	cache.banners[bannerID] = stat
+	cache.totalShows++
+	cache.mu.Unlock()
 
 	if err := b.store.RecordShow(ctx, slotID, bannerID, groupID); err != nil {
 		return 0, fmt.Errorf("failed to record show: %w", err)
 	}
 
-	// Обновление кеша под блокировкой
-	b.updateCache(slotID, groupID, bannerID, true, false)
-
+	// Не вызываем updateCache, так как уже обновили кеш выше
 	b.sendEvent(events.EventShow, slotID, bannerID, groupID)
 	return bannerID, nil
 }
@@ -201,45 +205,24 @@ func (b *Bandit) RecordClick(ctx context.Context, slotID, bannerID, groupID int)
 		return fmt.Errorf("failed to record click: %w", err)
 	}
 
-	// Обновляем кеш
-	b.updateCache(slotID, groupID, bannerID, false, true)
-
-	b.sendEvent(events.EventClick, slotID, bannerID, groupID)
-
-	return nil
-}
-
-// updateCache обновляет кеш после события (показ или клик)
-func (b *Bandit) updateCache(slotID, groupID, bannerID int, isShow, isClick bool) {
+	// Обновляем кеш под блокировкой
 	key := b.getCacheKey(slotID, groupID)
 
 	b.mu.RLock()
 	cache, ok := b.cache[key]
 	b.mu.RUnlock()
 
-	if !ok {
-		return
+	if ok {
+		cache.mu.Lock()
+		if stat, exists := cache.banners[bannerID]; exists {
+			stat.Clicks++
+			cache.banners[bannerID] = stat
+		}
+		cache.mu.Unlock()
 	}
 
-	// Обновление под блокировкой
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
-	stat, ok := cache.banners[bannerID]
-	if !ok {
-		// Если баннера нет, добавляем новую запись
-		stat = BannerStat{}
-	}
-
-	if isShow {
-		stat.Shows++
-		cache.totalShows++
-	}
-	if isClick {
-		stat.Clicks++
-	}
-
-	cache.banners[bannerID] = stat
+	b.sendEvent(events.EventClick, slotID, bannerID, groupID)
+	return nil
 }
 
 // AddBannerToSlot добавляет баннер в ротацию слота
