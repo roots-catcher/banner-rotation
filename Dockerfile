@@ -14,4 +14,4 @@ EXPOSE 8080
 ENV DB_URL=""
 ENV KAFKA_BROKERS=""
 ENV KAFKA_TOPIC=""
-CMD ["./banner-rotation"] 
+CMD ["./banner-rotation"]

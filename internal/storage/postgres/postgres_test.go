@@ -9,7 +9,7 @@ import (
 )
 
 func TestPostgresStorage(t *testing.T) {
-	connStr := "postgres://rotation_user:rotation_pass@localhost:5432/banner_rotation?sslmode=disable"
+	connStr := "postgres://rotation_user:rotation_pass@postgres:5432/banner_rotation?sslmode=disable"
 	store, err := New(connStr)
 	require.NoError(t, err)
 	defer func() {
@@ -20,6 +20,14 @@ func TestPostgresStorage(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	_, err = store.db.Exec(ctx, `
+        TRUNCATE TABLE groups, banner_slots, statistics, banners, slots CASCADE;
+        INSERT INTO groups (id, description) VALUES (1, 'Group 1');
+        INSERT INTO banners (id, description) VALUES (1, 'Banner 1');
+        INSERT INTO slots (id, description) VALUES (1, 'Slot 1');
+    `)
+	require.NoError(t, err)
 
 	t.Run("AddBannerToSlot", func(t *testing.T) {
 		err := store.AddBannerToSlot(ctx, 1, 1)
@@ -51,7 +59,7 @@ func TestPostgresStorage(t *testing.T) {
 }
 
 func TestGetBannersForSlot(t *testing.T) {
-	connStr := "postgres://rotation_user:rotation_pass@localhost:5432/banner_rotation?sslmode=disable"
+	connStr := "postgres://rotation_user:rotation_pass@postgres:5432/banner_rotation?sslmode=disable"
 	store, err := New(connStr)
 	require.NoError(t, err)
 	defer func() {
@@ -63,12 +71,13 @@ func TestGetBannersForSlot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Подготовка данных
-	_, err = store.db.Exec(ctx, "INSERT INTO slots (id) VALUES (10)")
-	require.NoError(t, err)
-	_, err = store.db.Exec(ctx, "INSERT INTO banners (id) VALUES (100), (101)")
-	require.NoError(t, err)
-	_, err = store.db.Exec(ctx, "INSERT INTO banner_slots (slot_id, banner_id) VALUES (10, 100), (10, 101)")
+	// Подготовка данных с заполнением обязательных полей
+	_, err = store.db.Exec(ctx, `
+        TRUNCATE TABLE banner_slots, banners, slots CASCADE;
+        INSERT INTO slots (id, description) VALUES (10, 'Slot 10');
+        INSERT INTO banners (id, description) VALUES (100, 'Banner 100'), (101, 'Banner 101');
+        INSERT INTO banner_slots (slot_id, banner_id) VALUES (10, 100), (10, 101);
+    `)
 	require.NoError(t, err)
 
 	// Тестирование

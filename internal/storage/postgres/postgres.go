@@ -32,13 +32,26 @@ func (s *PostgresStorage) AddBannerToSlot(ctx context.Context, slotID, bannerID 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO banner_slots (slot_id, banner_id)
-		VALUES ($1, $2)
-		ON CONFLICT (slot_id, banner_id) DO NOTHING`,
+	// Проверка существования баннера и слота
+	var exists bool
+	err := s.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM banners WHERE id = $1)`, bannerID).Scan(&exists)
+	if err != nil || !exists {
+		return fmt.Errorf("banner not found: %w", err)
+	}
+
+	err = s.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM slots WHERE id = $1)`, slotID).Scan(&exists)
+	if err != nil || !exists {
+		return fmt.Errorf("slot not found: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx, `
+        INSERT INTO banner_slots (slot_id, banner_id)
+        VALUES ($1, $2)
+        ON CONFLICT (slot_id, banner_id) DO NOTHING`,
 		slotID, bannerID,
 	)
-
 	return err
 }
 

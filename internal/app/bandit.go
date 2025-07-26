@@ -23,22 +23,22 @@ var _ BanditInterface = (*Bandit)(nil)
 
 // Bandit - основной объект для управления ротацией баннеров
 type Bandit struct {
-	mu       sync.RWMutex           // Защищает доступ к кешу
-	store    storage.Storage        // Хранилище данных (PostgreSQL)
-	cache    map[string]banditCache // Кеш статистики: ключ = "slotID_groupID"
+	mu       sync.RWMutex
+	store    storage.Storage
+	cache    map[string]banditCache
 	producer kafka.ProducerInterface
 }
 
 // banditCache - кешированная статистика для комбинации слот+группа
 type banditCache struct {
-	totalShows int                 // Общее количество показов
-	banners    map[int]*BannerStat // Статистика по баннерам
+	totalShows int
+	banners    map[int]*BannerStat
 }
 
 // BannerStat - статистика для одного баннера
 type BannerStat struct {
-	Shows  int // Количество показов
-	Clicks int // Количество кликов
+	Shows  int
+	Clicks int
 }
 
 // NewBandit создает новый экземпляр Bandit
