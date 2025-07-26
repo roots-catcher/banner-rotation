@@ -7,13 +7,12 @@ jobs:
     runs-on: ubuntu-latest
     
     services:
-      # Сервис PostgreSQL
       postgres:
-        image: postgres:15
+        image: postgres:15-alpine
         env:
-          POSTGRES_USER: rotation_user
-          POSTGRES_PASSWORD: rotation_pass
-          POSTGRES_DB: banner_rotation
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+          POSTGRES_DB: test_db
         ports:
           - 5432:5432
         options: >-
@@ -22,7 +21,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       
-      # Сервис Zookeeper
       zookeeper:
         image: bitnami/zookeeper:latest
         env:
@@ -30,7 +28,6 @@ jobs:
         ports:
           - 2181:2181
       
-      # Сервис Kafka
       kafka:
         image: wurstmeister/kafka:latest
         env:
@@ -39,8 +36,6 @@ jobs:
           KAFKA_CREATE_TOPICS: "banner_events:1:1"
         ports:
           - 9092:9092
-        depends_on:
-          - zookeeper
 
     steps:
     - name: Checkout code
@@ -53,24 +48,25 @@ jobs:
     
     - name: Install golangci-lint
       run: |
-        sudo curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.58.0
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.58.0
         
     - name: Run linter
       run: golangci-lint run
       
+    - name: Wait for services
+      run: |
+        echo "Waiting for services to be ready..."
+        while ! nc -z localhost 5432; do sleep 1; done
+        while ! nc -z localhost 2181; do sleep 1; done
+        while ! nc -z localhost 9092; do sleep 1; done
+        echo "All services are ready!"
+      
     - name: Run tests
       env:
-        DB_URL: "postgres://rotation_user:rotation_pass@localhost:5432/banner_rotation?sslmode=disable"
+        DB_URL: "postgres://test_user:test_pass@localhost:5432/test_db?sslmode=disable"
         KAFKA_BROKERS: "localhost:9092"
         KAFKA_TOPIC: "banner_events"
       run: |
-        # Ждем готовности PostgreSQL
-        while ! nc -z localhost 5432; do sleep 1; done
-        
-        # Ждем готовности Kafka
-        while ! nc -z localhost 9092; do sleep 1; done
-        
-        # Запускаем тесты
         go test -race -count=100 -v ./...
       
     - name: Build
