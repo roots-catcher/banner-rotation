@@ -8,7 +8,7 @@ down:
 	docker-compose down
 
 test:
-	go test -v ./...
+	go test -race -count=100 -v ./...
 
 lint:
 	golangci-lint run
